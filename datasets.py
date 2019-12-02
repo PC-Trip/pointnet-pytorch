@@ -142,14 +142,21 @@ class S3dDataset(data.Dataset):
 
                 if gen_labels: # do this only once
                     pbar = tqdm(total=len(self.datapath))
+                    ds_i = 0
                     for path in self.datapath:
-                        l = path.split('/')
-                        labels_path = os.path.join(l[0], l[1], l[2], l[3], l[4])
+                        l = path.split('\\')
+                        labels_path = os.path.join(l[-5], l[-4], l[-3], l[-2])
                         component_name = l[-1].split('.')[0]
                         class_name = l[-1].split('_')[0]
+                        if class_name == '.DS':
+                            ds_i += 1
+                            continue
+                        file_path = os.path.join(labels_path, component_name + '_labels.txt')
+                        if os.path.exists(file_path):
+                            continue
                         with open(path, 'r') as f:
-                            for line in f.readlines():
-                                with open(os.path.join(labels_path, component_name + '_labels.txt'), 'a') as g:
+                            with open(file_path, 'w') as g:
+                                for line in f.readlines():
                                     g.write(str(self.cat[class_name]) + '\n')
                         pbar.update()
                     
@@ -175,14 +182,16 @@ class S3dDataset(data.Dataset):
 
 if __name__ == '__main__':
 
-        c = ClsDataset(root='modelnet40_manually_aligned')
-        print(ps.type(), ps.size(), l.type(), l.size(), l)
+        # c = ClsDataset(root='modelnet40_manually_aligned')
+        # ps, seg = c[100]
+        # print(ps.type(), ps.size(), l.type(), l.size(), l)
 
-        d = PartDataset(root='shapenetcore_partanno_segmentation_benchmark_v0')
-        ps, seg = d[10]
-        print(ps.type(), ps.size(), seg.type(), seg.size())
+        # d = PartDataset(root='shapenetcore_partanno_segmentation_benchmark_v0')
+        # ps, seg = d[10]
+        # print(ps.type(), ps.size(), seg.type(), seg.size())
 
-        s = S3dDataset(root='Stanford3dDataset_v1.2', train=False, gen_labels=False)
+        s = S3dDataset(root='.', train=True, gen_labels=True)
+        s = S3dDataset(root='.', train=False, gen_labels=True)
         ps, seg = s[100]
         print(ps.type(), ps.size(), seg.type(), seg.size())
 
