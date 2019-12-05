@@ -14,9 +14,18 @@ import torch.optim as optim
 from datasets import S3dDataset
 from pointnet import PointNetSeg
 
+def get_path_of_last_model(config):
+    models_path = os.path.join(config['root'], config['outf'])
+    files = list(filter(lambda f: os.path.isfile(os.path.join(models_path, f)) and f.endswith('.pth'), os.listdir(models_path) ))
+    if len(files) == 0:
+        return None, 0
+    files.sort(key=lambda f: int(f.split('.')[0].split('_')[-1] ))
+    return os.path.join(models_path, files[-1]), int(files[-1].split('.')[0].split('_')[-1])
+
 def train(config):
     print('Random seed: %d' % int(config['seed']))
     torch.manual_seed(config['seed'])
+    print("Training {} epochs".format(config['nepochs']))
     
     torch.backends.cudnn.benchmark = True
     dataset = S3dDataset(root=config['root'], npoints=config['npoints'], train=True)
@@ -41,8 +50,16 @@ def train(config):
 
     classifier = PointNetSeg(k=num_classes)
 
+    model_epoch_cumulatiove_base = 0
     if config.get('model'):
+        print('Loading model from: {}'.format(config.get('model')))
         classifier.load_state_dict(torch.load(config['model']))
+    elif config.get('continue'):
+        model_path, model_epoch_cumulatiove_base = get_path_of_last_model(config)
+        if model_path:
+            print('Loading model from: {}'.format(model_path))
+            classifier.load_state_dict(torch.load(model_path))
+
 
     optimizer = optim.SGD(classifier.parameters(), lr=config['lr'], momentum=config['momentum'])
 
@@ -124,7 +141,7 @@ def train(config):
             break
         
         finally:
-            torch.save(classifier.state_dict(), os.path.join(config['outf'], '{}_model_{}.pth'.format(config['dataset'], epoch)))
+            torch.save(classifier.state_dict(), os.path.join(config['outf'], '{}_model_{}.pth'.format(config['dataset'], model_epoch_cumulatiove_base+epoch)))
 
 
 if __name__ == '__main__':
@@ -148,17 +165,18 @@ if __name__ == '__main__':
 
     config = {
         'root': '.',
-        'npoints': 1000,
+        'npoints': 4096,
         'dataset': 's3dis',
         'seed': 42,
-        'batchsize': 32,
-        'workers': 4,
+        'batchsize': 30,
+        'workers': 3,
         'outf': 'outFolder',
-        'lr': 0.001,
+        'lr': 0.01,
         'momentum': 0.9,
         'classname': '',
-        'nepochs': 1,
+        'nepochs': 10,
         'model': None,
+        'continue': True,
     }
 
     train(config)

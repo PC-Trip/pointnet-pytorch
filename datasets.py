@@ -136,7 +136,7 @@ class S3dDataset(data.Dataset):
                         if os.path.isdir(os.path.join(area_path, scene)):
                             scene_path = os.path.join(area_path, scene)
                             for scene_component in os.listdir(os.path.join(scene_path, 'Annotations')):
-                                if not scene_component.endswith('_labels.txt'):
+                                if 'labels' not in scene_component and 'preds' not in scene_component:
                                     self.datapath.append(os.path.join(scene_path, 'Annotations', scene_component))
                 
 
@@ -162,18 +162,24 @@ class S3dDataset(data.Dataset):
                     
 
         def __getitem__(self, idx):
-            fn = self.datapath[idx]
-            points = np.loadtxt(fn)[:, :3].astype(np.float32)
-            ln = os.path.splitext(fn)[0] + '_labels.txt'
-            seg = np.loadtxt(ln).astype(np.int64)
-            replace = True if points.shape[0]<self.npoints else False
-            choice = np.random.choice(points.shape[0], self.npoints, replace=replace)
-            points = points[choice, :]
-            points = scale_linear_bycolumn(points)
-            seg = seg[choice]
-            points = torch.from_numpy(points)
-            seg = torch.from_numpy(seg)
-            return points, seg
+            try:
+                fn = self.datapath[idx]
+                points = np.loadtxt(fn)[:, :3].astype(np.float32)
+                ln = os.path.splitext(fn)[0] + '_labels.txt'
+                seg = np.loadtxt(ln).astype(np.int64)
+                replace = True if points.shape[0]<self.npoints else False
+                choice = np.random.choice(points.shape[0], self.npoints, replace=replace)
+                points = points[choice, :]
+                points = scale_linear_bycolumn(points)
+                seg = seg[choice]
+                points = torch.from_numpy(points)
+                seg = torch.from_numpy(seg)
+                return points, seg
+            
+            except Exception as e:
+                    print(fn)
+                    print(e)
+                    raise e
 
 
         def __len__(self):
