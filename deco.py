@@ -2,6 +2,7 @@ import open3d as o3d
 from matplotlib import cm
 import numpy as np
 import torch
+from scipy.spatial.transform import Rotation as R
 
 
 class Callback:
@@ -138,12 +139,36 @@ def pc_normalize(norm_type='global', center=True, verbose=False):
     return deco
 
 
-def pc_noise(sigma=0.01):
+def pc_noise(sigma=0.01, seed=None):
     def deco(func):
         def wrapper(*args, **kwargs):
             points, seg = func(*args, **kwargs)
+            if seed is not None:
+                torch.manual_seed(seed)
             points = torch.distributions.normal.Normal(
                 points, torch.full_like(points, sigma)).sample()
+            return points, seg
+
+        return wrapper
+
+    return deco
+
+
+def pc_rotate(max_x=30, max_y=30, max_z=30, seed=None):
+    def deco(func):
+        def wrapper(*args, **kwargs):
+            points, seg = func(*args, **kwargs)
+            # r = torch.from_numpy(R.random().as_dcm().astype(np.float32))
+            if seed is not None:
+                np.random.seed(seed)
+            ax = np.random.uniform(0, max_x)
+            ay = np.random.uniform(0, max_y)
+            az = np.random.uniform(0, max_z)
+            r = torch.from_numpy(
+                R.from_euler('xyz', [ax, ay, az],
+                             degrees=True).as_dcm().astype(np.float32))
+            # print(r)
+            points = torch.mm(points, r)
             return points, seg
 
         return wrapper
