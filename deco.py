@@ -1,6 +1,7 @@
 import open3d as o3d
 from matplotlib import cm
 import numpy as np
+import torch
 
 
 class Callback:
@@ -45,8 +46,8 @@ def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True):
             classes = seg.unique()
             n_classes = len(classes)
             # Show info
-            print('max: {}'.format(points.max(0)))
             print('min: {}'.format(points.min(0)))
+            print('max: {}'.format(points.max(0)))
             print('n_points: {}'.format(points.shape[0]))
             print('classes: {}'.format(classes))
             print('n_classes: {}'.format(n_classes))
@@ -72,6 +73,7 @@ def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True):
                 vis.add_geometry(pcd)
                 opt = vis.get_render_option()
                 if coord_axes:
+                    # FIXME move frame to 0, 0, 0
                     opt.show_coordinate_frame = True
                 if black_bg:
                     opt.background_color = np.asarray([0, 0, 0])
@@ -84,12 +86,14 @@ def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True):
     return deco
 
 
-def pc_normalize(norm_type='global', verbose=False):
+def pc_normalize(norm_type='global', center=True, verbose=False):
     """
     Point normalization decorator for Dataset.__getitem__
     :param str norm_type:
-    global: X/max(X, Y, Z), Y/max(X, Y, Z), Z/max(X, Y, Z)
-    local: X/max(X), Y/max(Y), Z/max(Z)
+    global: max_range = max(max(X)-min(X), max(Y)-min(Y), max(Z)-min(Z))
+        X-min(X)/max_range, Y-min(Y)/max_range, Z-min(Z)/max_range
+    local: X-min(X)/max(X)-min(X), Y-min(Y)/max(Y)-min(Y), Z-min(Z)/max(Z)-min(Z)
+    :param bool center: center around 0, 0, 0?
     :param bool verbose:
     :return: points, seg
     """
@@ -114,6 +118,11 @@ def pc_normalize(norm_type='global', verbose=False):
             else:
                 raise ValueError('Wrong normalization type: {},'
                                  ' choose global or local'.format(norm_type))
+            if center:
+                points_min = points.min(0)[0]
+                points_max = points.max(0)[0]
+                points_range = points_max - points_min
+                points = 2 * points - points_range
             if verbose:
                 points_min = points.min(0)[0]
                 points_max = points.max(0)[0]
