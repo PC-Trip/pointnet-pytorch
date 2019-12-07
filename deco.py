@@ -23,6 +23,7 @@ def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True):
     def deco(func):
         def wrapper(*args, **kwargs):
             # Preprocessing
+            print('pc_info')
             dataset, idx = args
             fn = dataset.datapath[idx]
             print(fn)
@@ -76,6 +77,50 @@ def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True):
                     opt.background_color = np.asarray([0, 0, 0])
                 vis.run()
                 vis.destroy_window()
+            return points, seg
+
+        return wrapper
+
+    return deco
+
+
+def pc_normalize(norm_type='global', verbose=False):
+    """
+    Point normalization decorator for Dataset.__getitem__
+    :param str norm_type:
+    global: X/max(X, Y, Z), Y/max(X, Y, Z), Z/max(X, Y, Z)
+    local: X/max(X), Y/max(Y), Z/max(Z)
+    :param bool verbose:
+    :return: points, seg
+    """
+    def deco(func):
+        def wrapper(*args, **kwargs):
+            points, seg = func(*args, **kwargs)
+            points_min = points.min(0)[0]
+            points_max = points.max(0)[0]
+            points_range = points_max - points_min
+            if verbose:
+                print('pc_normalize')
+                print('min: {}'.format(points_min))
+                print('max: {}'.format(points_max))
+                print('range: {}'.format(points_range))
+            if norm_type == 'global':
+                max_range = points_range.max()
+                if max_range != 0:
+                    points = (points - points_min) / max_range
+            elif norm_type == 'local':
+                points_range[points_range == 0] = 1  # replace 0 to 1
+                points = (points - points_min) / points_range
+            else:
+                raise ValueError('Wrong normalization type: {},'
+                                 ' choose global or local'.format(norm_type))
+            if verbose:
+                points_min = points.min(0)[0]
+                points_max = points.max(0)[0]
+                points_range = points_max - points_min
+                print('new_min: {}'.format(points_min))
+                print('new_max: {}'.format(points_max))
+                print('new_range: {}'.format(points_range))
             return points, seg
 
         return wrapper
