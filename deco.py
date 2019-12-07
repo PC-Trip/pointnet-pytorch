@@ -97,6 +97,7 @@ def pc_normalize(norm_type='global', center=True, verbose=False):
     :param bool verbose:
     :return: points, seg
     """
+
     def deco(func):
         def wrapper(*args, **kwargs):
             points, seg = func(*args, **kwargs)
@@ -130,6 +131,19 @@ def pc_normalize(norm_type='global', center=True, verbose=False):
                 print('new_min: {}'.format(points_min))
                 print('new_max: {}'.format(points_max))
                 print('new_range: {}'.format(points_range))
+            return points, seg
+
+        return wrapper
+
+    return deco
+
+
+def pc_noise(sigma=0.01):
+    def deco(func):
+        def wrapper(*args, **kwargs):
+            points, seg = func(*args, **kwargs)
+            points = torch.distributions.normal.Normal(
+                points, torch.full_like(points, sigma)).sample()
             return points, seg
 
         return wrapper
