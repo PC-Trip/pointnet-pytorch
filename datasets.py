@@ -8,6 +8,8 @@ import torch.utils.data as data
 import pymesh
 from tqdm import tqdm
 from utils import shapenet_labels
+import logging
+from time import time
 
 def scale_linear_bycolumn(rawdata, high=1.0, low=0.0):
     mins = np.min(rawdata, axis=0)
@@ -184,6 +186,141 @@ class S3dDataset(data.Dataset):
 
         def __len__(self):
             return len(self.datapath)
+
+
+class RoomsDataset_mk1:
+        '''
+                Semantic segmentation on S3DIS
+
+                take sample from a room only ones (simple)
+        '''
+
+        def __init__(self, path, npoints=4096, feature_num=3):
+                self.path = path
+                self.files_paths = [os.path.join(self.path, fn) for fn in os.listdir(path)]
+                self.npoints = npoints
+                self.feature_num = feature_num
+
+        def __len__(self):
+                return len(self.files)
+
+        def __getitem__(self, idx):
+                fp = self.files_paths[idx]
+                points = np.loadtxt(fp)[:, :3]
+                seg = points[:, -1].astype(np.int64)
+                points = points[:, :feature_num].astype(np.float32)
+                replace = True if points.shape[0]<self.npoints else False
+                choice = np.random.choice(points.shape[0], self.npoints, replace=replace)
+                points = points[choice, :]
+                points = scale_linear_bycolumn(points)
+                seg = seg[choice]
+                points = torch.from_numpy(points)
+                seg = torch.from_numpy(seg)
+                return points, seg
+
+
+
+
+class RoomsDataset_mk2:
+        '''
+                Semantic segmentation on S3DIS
+
+                types of room slicing:
+                1) x_size*y_size*z_size
+                2) x_mesh_num*y_mesh_num*z_mesh_num
+
+
+                we have to return a len. we don't want to load all Gbs of data to calculate size
+                let me set some size and when we are out of it we cycle (idx % real_size) until
+                we met that size. 
+        '''
+
+        def __init__(self, path, npoints=4096, size=1000, feature_num=3, slicing_sizes=(1.0, 1.0, 1.0), slicing_mesh=None):
+                self.path = path
+                self.files_paths = [os.path.join(self.path, fn) for fn in os.listdir(self.path)]
+                self.npoints = npoints
+                self.feature_num = feature_num
+                self.size = size
+                self.slicing_sizes = slicing_sizes
+                self.slicing_mesh = slicing_mesh
+                if slicing_sizes and slicing_mesh:
+                        raise Exception("Set only one type of room slicing, please")
+                
+                self.box_gen = None
+
+
+        def __len__(self):
+                return self.size
+
+
+        def make_box_gen(self, points):
+                """
+                Split points in to subarrays to list
+
+                input: points - np.array of shape (point_number, xyz[rgb]+label)
+                """
+                boxes = []
+                if self.slicing_sizes:
+                        # there are 8 points to start sized slicing... we will go from the mins to max
+                        # also we can start from random point of view
+                        mins = np.min(points[:, :3], axis=0)
+                        maxs = np.max(points[:, :3], axis=0)
+                        ranges = maxs-mins
+                        ns=(ranges/np.array(self.slicing_sizes)).astype(np.int64)
+                        ns = np.clip(ns, 0, None)
+                        for ix in range(ns[0]):
+                                for iy in range(ns[1]):
+                                        for iz in range(ns[2]):
+                                                # print(ix, iy, iz)
+                                                # print(self.slicing_sizes)
+                                                # print(ns)
+                                                # print(ranges)
+                                                x_indices = (mins[0]+self.slicing_sizes[0]*ix<points[:, 0]) * (mins[0]+self.slicing_sizes[0]*(ix+1)>points[:, 0])
+                                                y_indices = (mins[1]+self.slicing_sizes[1]*iy<points[:, 1]) * (mins[1]+self.slicing_sizes[1]*(iy+1)>points[:, 1])
+                                                z_indices = (mins[2]+self.slicing_sizes[2]*iz<points[:, 2]) * (mins[2]+self.slicing_sizes[2]*(iz+1)>points[:, 2])
+                                                # print(np.sum(x_indices), np.sum(y_indices), np.sum(z_indices))
+                                                # print(np.sum(x_indices*y_indices))
+                                                # print(np.sum(x_indices*z_indices))
+                                                # print(np.sum(y_indices*z_indices))
+                                                # print(np.sum(x_indices*y_indices*z_indices))
+                                                indices = x_indices*y_indices*z_indices
+                                                # print('indshp', indices.shape)
+                                                if np.sum(indices) == 0:
+                                                        continue
+                                                yield points[indices, :]
+
+
+        def new_box_gen(self):
+                if len(self.files_paths) == 0:
+                        self.files_paths = [os.path.join(self.path, fn) for fn in os.listdir(self.path)]
+
+                fp = self.files_paths.pop(0)
+                logging.debug("Loading file: {}".format(fp))
+                points = np.loadtxt(fp)
+                self.box_gen = self.make_box_gen(points)
+
+
+        def __getitem__(self, idx):
+                if self.box_gen is None:
+                        self.new_box_gen()
+
+                try:
+                        box = next(self.box_gen)
+                except StopIteration:
+                        self.new_box_gen()
+                        box = next(self.box_gen)
+
+                replace = True if box.shape[0]<self.npoints else False
+                # print(box.shape)
+                choice = np.random.choice(box.shape[0], self.npoints, replace=replace)
+                points = box[choice, :]
+                # print(points.shape)
+                xyz = points[:, :3].astype(np.float32)
+                seg = points[:, -1].astype(np.int64)
+                xyz = scale_linear_bycolumn(xyz)
+                xyz = torch.from_numpy(xyz)
+                seg = torch.from_numpy(seg)
+                return xyz, seg
 
 
 if __name__ == '__main__':

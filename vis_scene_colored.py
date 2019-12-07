@@ -19,6 +19,8 @@ import open3d
 from utils import get_s3d_cat2num
 
 
+
+
 if __name__ == '__main__':
     room_path = "D:\\code\\pytorch\\pointnet-pytorch\\train\Area_1\\conferenceRoom_2\\Annotations"
     files = os.listdir(room_path)
