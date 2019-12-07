@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-# import lera
+import mlflow
 
 from datasets import RoomsDataset_mk2
 from pointnet import PointNetSeg
@@ -24,6 +24,8 @@ def get_path_of_last_model(config):
     return os.path.join(models_path, files[-1]), int(files[-1].split('.')[0].split('_')[-1])
 
 def train(config):
+    mlflow.log_params(config)
+
     print('Random seed: %d' % int(config['seed']))
     torch.manual_seed(config['seed'])
     print("Training {} epochs".format(config['nepochs']))
@@ -93,6 +95,8 @@ def train(config):
                 train_acc = correct.item() / float(config['batchsize']*config['npoints'])
                 train_iou = correct.item() / float(2*config['batchsize']*config['npoints']-correct.item())
                 print('epoch %d: %d/%d | train loss: %f | train acc: %f | train iou: %f' % (epoch+1, i+1, num_batch+1, loss.item(), train_acc, train_iou))
+                mlflow.log_metric('train_acc', train_acc, step=1)
+                mlflow.log_metric('train_iou', train_iou, step=1)
                 train_acc_epoch.append(train_acc)
                 train_iou_epoch.append(train_iou)
                 # lera.log({
@@ -119,17 +123,12 @@ def train(config):
                     print(blue('epoch %d: %d/%d | test loss: %f | test acc: %f | test iou: %f') % (epoch+1, i+1, num_batch+1, loss.item(), test_acc, test_iou))
                     test_acc_epoch.append(test_acc)
                     test_iou_epoch.append(test_iou)
-                    # lera.log({
-                    #     'test loss': loss.item(), 
-                    #     'test acc': test_acc, 
-                    #     'test IoU': test_iou})
+                    mlflow.log_metric('test_acc', test_acc, step=1)
+                    mlflow.log_metric('test_iou', test_iou, step=1)
+
             print(yellow('epoch %d | mean train acc: %f | mean train IoU: %f') % (epoch+1, np.mean(train_acc_epoch), np.mean(train_iou_epoch)))
             print(red('epoch %d | mean test acc: %f | mean test IoU: %f') % (epoch+1, np.mean(test_acc_epoch), np.mean(test_iou_epoch)))
-            # lera.log({
-            #     'mean train acc': np.mean(train_acc_epoch), 
-            #     'mean train iou': np.mean(train_iou_epoch), 
-            #     'mean test acc': np.mean(test_acc_epoch), 
-            #     'mean test iou': np.mean(test_iou_epoch)})
+
         except KeyboardInterrupt:
             print('User interruption')
             break
