@@ -161,9 +161,9 @@ def pc_rotate(max_x=30, max_y=30, max_z=30, seed=None):
             # r = torch.from_numpy(R.random().as_dcm().astype(np.float32))
             if seed is not None:
                 np.random.seed(seed)
-            ax = np.random.uniform(0, max_x)
-            ay = np.random.uniform(0, max_y)
-            az = np.random.uniform(0, max_z)
+            ax = np.random.uniform(-max_x, max_x)
+            ay = np.random.uniform(-max_y, max_y)
+            az = np.random.uniform(-max_z, max_z)
             r = torch.from_numpy(
                 R.from_euler('xyz', [ax, ay, az],
                              degrees=True).as_dcm().astype(np.float32))
