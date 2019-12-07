@@ -17,7 +17,7 @@ class Callback:
         return False
 
 
-def pc_info(cmap='jet', viz=True):
+def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True):
     cmap = cm.get_cmap(cmap)
 
     def deco(func):
@@ -58,8 +58,7 @@ def pc_info(cmap='jet', viz=True):
                 if n_classes > 1:
                     colors = np.zeros((seg.shape[0], 3))
                     for i, c in enumerate(seg):
-                        colors[i] = cmap(c / (n_classes - 1))[
-                                    :-1]  # remove alpha
+                        colors[i] = cmap(c / (n_classes - 1))[:-1]  # -alpha
                 else:
                     colors = np.full((seg.shape[0], 3), cmap(0)[:-1])
                 pcd = o3d.geometry.PointCloud()
@@ -70,6 +69,11 @@ def pc_info(cmap='jet', viz=True):
                 vis.register_animation_callback(c)
                 vis.create_window(width=500, height=500, left=800, top=50)
                 vis.add_geometry(pcd)
+                opt = vis.get_render_option()
+                if coord_axes:
+                    opt.show_coordinate_frame = True
+                if black_bg:
+                    opt.background_color = np.asarray([0, 0, 0])
                 vis.run()
                 vis.destroy_window()
             return points, seg
