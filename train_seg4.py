@@ -10,9 +10,47 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 # import lera
+from sklearn.metrics import classification_report, confusion_matrix
 
-from datasets import S3dDataset, S3dDatasetNeiSphe
+from datasets_loc import S3dDataset, S3dDatasetNeiSphe
 from pointnet import PointNetSeg
+
+
+def print_cm(cm, labels, hide_zeroes=False, hide_diagonal=False,
+             hide_threshold=None):
+    """pretty print for confusion matrixes"""
+    columnwidth = max([len(x) for x in labels] + [5])  # 5 is value length
+    empty_cell = " " * columnwidth
+
+    # Begin CHANGES
+    fst_empty_cell = (columnwidth - 3) // 2 * " " + "t/p" + (
+                columnwidth - 3) // 2 * " "
+
+    if len(fst_empty_cell) < len(empty_cell):
+        fst_empty_cell = " " * (
+                    len(empty_cell) - len(fst_empty_cell)) + fst_empty_cell
+    # Print header
+    print("    " + fst_empty_cell, end=" ")
+    # End CHANGES
+
+    for label in labels:
+        print("%{0}s".format(columnwidth) % label, end=" ")
+
+    print()
+    # Print rows
+    for i, label1 in enumerate(labels):
+        print("    %{0}s".format(columnwidth) % label1, end=" ")
+        for j in range(len(labels)):
+            cell = "%{0}.1f".format(columnwidth) % cm[i, j]
+            if hide_zeroes:
+                cell = cell if float(cm[i, j]) != 0 else empty_cell
+            if hide_diagonal:
+                cell = cell if i != j else empty_cell
+            if hide_threshold:
+                cell = cell if cm[i, j] > hide_threshold else empty_cell
+            print(cell, end=" ")
+        print()
+
 
 def get_path_of_last_model(config):
     models_path = os.path.join(config['root'], config['outf'])
@@ -108,7 +146,22 @@ def train(config):
                 print('epoch %d: %d/%d | train loss: %f | train acc: %f | train iou: %f' % (epoch+1, i+1, num_batch+1, loss.item(), train_acc, train_iou))
                 train_acc_epoch.append(train_acc)
                 train_iou_epoch.append(train_iou)
-
+                if config['verbose'] > 0:
+                    # Report + Confusion Matrix
+                    target_names = ['board', 'floor', 'door', 'bookcase',
+                                    'column',
+                                    'ceiling', 'wall', 'stairs', 'beam',
+                                    'chair',
+                                    'clutter', 'table', 'window', 'sofa']
+                    true_labels = np.unique(labels.data.numpy())
+                    pred_labels = np.unique(pred_choice.numpy())
+                    all_labels = np.unique(
+                        np.concatenate((true_labels, pred_labels)))
+                    step_names = [target_names[x] for x in all_labels]
+                    print(classification_report(labels.data, pred_choice,
+                                                target_names=step_names))
+                    cm = confusion_matrix(labels.data, pred_choice)
+                    print_cm(cm, step_names)
                 # lera.log({
                 #     'train loss': loss.item(), 
                 #     'train acc': train_acc, 
@@ -133,6 +186,22 @@ def train(config):
                     print(blue('epoch %d: %d/%d | test loss: %f | test acc: %f | test iou: %f') % (epoch+1, i+1, num_batch+1, loss.item(), test_acc, test_iou))
                     test_acc_epoch.append(test_acc)
                     test_iou_epoch.append(test_iou)
+                    if config['verbose'] > 0:
+                        # Report + Confusion Matrix
+                        target_names = ['board', 'floor', 'door', 'bookcase',
+                                        'column',
+                                        'ceiling', 'wall', 'stairs', 'beam',
+                                        'chair',
+                                        'clutter', 'table', 'window', 'sofa']
+                        true_labels = np.unique(labels.data.numpy())
+                        pred_labels = np.unique(pred_choice.numpy())
+                        all_labels = np.unique(
+                            np.concatenate((true_labels, pred_labels)))
+                        step_names = [target_names[x] for x in all_labels]
+                        print(classification_report(labels.data, pred_choice,
+                                                    target_names=step_names))
+                        cm = confusion_matrix(labels.data, pred_choice)
+                        print_cm(cm, step_names)
                     # lera.log({
                     #     'test loss': loss.item(), 
                     #     'test acc': test_acc, 
@@ -181,7 +250,7 @@ if __name__ == '__main__':
         'root': 'Stanford3dDataset_v1.2',
         'npoints': 4096,
         'dataset': 's3disneisphe',
-        'seed': 42,
+        'seed': 43,
         'batchsize': 25,
         'workers': 1,
         'outf': 'outFolderS',
@@ -191,6 +260,7 @@ if __name__ == '__main__':
         'nepochs': 10,
         'model': None,
         'continue': True,
+        'verbose': 1,
     }
 
     train(config)
