@@ -186,13 +186,16 @@ def pc_rotate(max_x=30, max_y=30, max_z=30, seed=None):
     return deco
 
 
-def ps_to_spherical(verbose=True):
+def ps_to_spherical(center=None, verbose=True):
     def deco(func):
         def wrapper(*args, **kwargs):
             points, seg = func(*args, **kwargs)
-            center = points[0].numpy().copy()
+            if center is None:
+                c = points[0].numpy().copy()
+            else:
+                c = center
             for i, p in enumerate(points):  # TODO optimize
-                x, y, z = p.numpy() - center
+                x, y, z = p.numpy() - c
                 r = np.sqrt(x * x + y * y + z * z)
                 theta = np.arccos(z / r) if r != 0 else 0.0
                 phi = np.arctan2(y, x)
