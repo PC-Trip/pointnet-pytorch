@@ -10,6 +10,8 @@ from tqdm import tqdm
 from utils import shapenet_labels
 import logging
 from time import time
+import open3d as o3d
+
 
 def scale_linear_bycolumn(rawdata, high=1.0, low=0.0):
     mins = np.min(rawdata, axis=0)
@@ -323,6 +325,72 @@ class RoomsDataset_mk2:
                 return xyz, seg
 
 
+class S3dDatasetNeiSphe(data.Dataset):
+    def __init__(self, root, npoints=4096, train=True, gen_labels=False):
+        self.root = root
+        self.npoints = npoints
+        self.catfile = os.path.join(self.root, 's3d_cat2num.txt')
+        self.cat = {}
+        with open(self.catfile, 'r') as f:
+            for line in f.readlines():
+                lns = line.strip().split()
+                self.cat[lns[0]] = lns[1]
+        self.num_classes = len(self.cat)
+        self.datapath, self.labelspath = [], []
+        FLAG = 'train' if train else 'test'
+        path = os.path.join(self.root, FLAG)
+        for area in os.listdir(path):
+            area_path = os.path.join(path, area)
+            for scene in os.listdir(area_path):
+                if os.path.isdir(os.path.join(area_path, scene)):
+                    scene_path = os.path.join(area_path, scene)
+                    for scene_component in os.listdir(
+                            os.path.join(scene_path, 'Annotations')):
+                        if not scene_component.endswith(
+                                '_labels.txt') and not scene_component.startswith(
+                                '.'):
+                            self.datapath.append(
+                                os.path.join(scene_path, 'Annotations',
+                                             scene_component))
+
+        if gen_labels:  # do this only once
+            for path in tqdm(self.datapath):
+                dir_name, base_name = os.path.split(path)
+                root, ext = os.path.splitext(base_name)
+                class_name = root.split('_')[0]
+                file_path = os.path.join(dir_name, root + '_labels.txt')
+                with open(os.path.join(file_path), 'w') as f:
+                    f.write(str(self.cat[class_name]))
+
+    @pc_normalize(norm_type='spherical', center=False, verbose=False)
+    @ps_to_spherical(verbose=False)
+    # @pc_info(cmap='tab10', viz=True)
+    @pc_noise(sigma=0.01, seed=42)
+    @pc_rotate(max_x=0, max_y=0, max_z=180, seed=42)
+    def __getitem__(self, idx):
+        n = 0
+        while n != self.npoints:
+            fn = self.datapath[idx]
+            points = np.loadtxt(fn)[:, :3].astype(np.float32)
+            ln = os.path.splitext(fn)[0] + '_labels.txt'
+            seg = np.loadtxt(ln).astype(np.int64)
+            seg = np.full(points.shape[0], seg)
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(points)
+            pcd_tree = o3d.geometry.KDTreeFlann(pcd)
+            idx = np.random.randint(0, points.shape[0])
+            n, idxs, ds = pcd_tree.search_knn_vector_3d(points[idx], self.npoints)
+            idx = np.random.randint(0, len(self.datapath))  # FIXME workaround
+        points = points[idxs]
+        seg = seg[idxs]
+        points = torch.from_numpy(points)
+        seg = torch.from_numpy(seg)
+        return points, seg
+
+    def __len__(self):
+        return len(self.datapath)
+
+
 if __name__ == '__main__':
 
         # c = ClsDataset(root='modelnet40_manually_aligned')
@@ -335,8 +403,13 @@ if __name__ == '__main__':
 
         s = S3dDataset(root='.', train=True, gen_labels=True)
         s = S3dDataset(root='.', train=False, gen_labels=True)
+        s = S3dDatasetNeiSphe(root='Stanford3dDataset_v1.2', train=True, gen_labels=True)
         ps, seg = s[100]
         print(ps.type(), ps.size(), seg.type(), seg.size())
-
+        for _ in tqdm(s):
+            try:
+                pass
+            except Exception as e:
+                print(e)
 
 
