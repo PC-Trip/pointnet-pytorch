@@ -19,7 +19,8 @@ class Callback:
         return False
 
 
-def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True):
+def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True,
+            width=500, height=500, left=800, top=50):
     cmap = cm.get_cmap(cmap)
 
     def deco(func):
@@ -70,7 +71,8 @@ def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True):
                 vis = o3d.visualization.VisualizerWithEditing()
                 c = Callback(seg)
                 vis.register_animation_callback(c)
-                vis.create_window(width=500, height=500, left=800, top=50)
+                vis.create_window(width=width, height=height,
+                                  left=left, top=top)
                 vis.add_geometry(pcd)
                 opt = vis.get_render_option()
                 if coord_axes:
@@ -94,6 +96,7 @@ def pc_normalize(norm_type='global', center=True, verbose=False):
     global: max_range = max(max(X)-min(X), max(Y)-min(Y), max(Z)-min(Z))
         X-min(X)/max_range, Y-min(Y)/max_range, Z-min(Z)/max_range
     local: X-min(X)/max(X)-min(X), Y-min(Y)/max(Y)-min(Y), Z-min(Z)/max(Z)-min(Z)
+    spherical: R-min(R)/range(R), THETA/PI, PHI-(-PI)/2*PI
     :param bool center: center around 0, 0, 0?
     :param bool verbose:
     :return: points, seg
@@ -116,6 +119,13 @@ def pc_normalize(norm_type='global', center=True, verbose=False):
                     points = (points - points_min) / max_range
             elif norm_type == 'local':
                 points_range[points_range == 0] = 1  # replace 0 to 1
+                points = (points - points_min) / points_range
+            elif norm_type == 'spherical':
+                points_range[points_range == 0] = 1
+                points_range[1] = np.pi
+                points_range[2] = 2 * np.pi
+                points_min[1] = 0.0
+                points_min[2] = -np.pi
                 points = (points - points_min) / points_range
             else:
                 raise ValueError('Wrong normalization type: {},'
@@ -169,6 +179,32 @@ def pc_rotate(max_x=30, max_y=30, max_z=30, seed=None):
                              degrees=True).as_dcm().astype(np.float32))
             # print(r)
             points = torch.mm(points, r)
+            return points, seg
+
+        return wrapper
+
+    return deco
+
+
+def ps_to_spherical(verbose=True):
+    def deco(func):
+        def wrapper(*args, **kwargs):
+            points, seg = func(*args, **kwargs)
+            center = points[0].numpy().copy()
+            for i, p in enumerate(points):  # TODO optimize
+                x, y, z = p.numpy() - center
+                r = np.sqrt(x * x + y * y + z * z)
+                theta = np.arccos(z / r) if r != 0 else 0.0
+                phi = np.arctan2(y, x)
+                points[i] = torch.from_numpy(np.array([r, theta, phi]))
+            if verbose:
+                points_min = points.min(0)[0]
+                points_max = points.max(0)[0]
+                points_range = points_max - points_min
+                print('ps_to_spherical')
+                print('min: {}'.format(points_min))
+                print('max: {}'.format(points_max))
+                print('range: {}'.format(points_range))
             return points, seg
 
         return wrapper
