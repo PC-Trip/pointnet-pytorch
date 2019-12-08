@@ -20,7 +20,7 @@ class Callback:
 
 
 def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True,
-            width=500, height=500, left=800, top=50):
+            width=500, height=500, left=800, top=50, spherical=False):
     cmap = cm.get_cmap(cmap)
 
     def deco(func):
@@ -47,6 +47,7 @@ def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True,
             points, seg = func(*args, **kwargs)
             classes = seg.unique()
             n_classes = len(classes)
+            max_class = max(classes)
             # Show info
             print('min: {}'.format(points.min(0)))
             print('max: {}'.format(points.max(0)))
@@ -55,18 +56,23 @@ def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True,
             print('n_classes: {}'.format(n_classes))
             if viz:  # Show cloud
                 # Colorize
-                # FIXME doesn't work
-                # colors = np.apply_along_axis(
-                #     lambda x: cmap(x / (n_classes - 1))[:-1]
-                #     if n_classes > 1 else cmap(0)[:-1], 0, seg.numpy())
                 if n_classes > 1:
-                    colors = np.zeros((seg.shape[0], 3))
-                    for i, c in enumerate(seg):
-                        colors[i] = cmap(c / (n_classes - 1))[:-1]  # -alpha
+                    colors = np.apply_along_axis(
+                        lambda x: cmap(x / max_class), 0, seg)[:, :-1]
                 else:
                     colors = np.full((seg.shape[0], 3), cmap(0)[:-1])
                 pcd = o3d.geometry.PointCloud()
-                pcd.points = o3d.utility.Vector3dVector(points)
+                if spherical:
+                    new_points = torch.zeros_like(points)
+                    for i, p in enumerate(points):  # TODO optimize
+                        r, theta, phi = p.numpy()
+                        x = r * np.sin(theta) * np.cos(phi)
+                        y = r * np.sin(theta) * np.sin(phi)
+                        z = r * np.cos(theta)
+                        new_points[i] = torch.from_numpy(np.array([x, y, z]))
+                    pcd.points = o3d.utility.Vector3dVector(new_points)
+                else:
+                    pcd.points = o3d.utility.Vector3dVector(points)
                 pcd.colors = o3d.utility.Vector3dVector(colors)
                 vis = o3d.visualization.VisualizerWithEditing()
                 c = Callback(seg)
