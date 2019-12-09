@@ -7,15 +7,17 @@ import torch.autograd as autograd
 import torch.nn as nn
 import torch.nn.functional as F
 
+input_dim = 6 # 3
+
 class STN3D(nn.Module):
 	def __init__(self):
 		super(STN3D, self).__init__()
-		self.conv1 = nn.Conv1d(3, 64, 1)
+		self.conv1 = nn.Conv1d(input_dim, 64, 1)
 		self.conv2 = nn.Conv1d(64, 128, 1)
 		self.conv3 = nn.Conv1d(128, 1024, 1)
 		self.fc1 = nn.Linear(1024, 512)
 		self.fc2 = nn.Linear(512, 256)
-		self.fc3 = nn.Linear(256, 9)
+		self.fc3 = nn.Linear(256, input_dim*input_dim)
 		self.bn1 = nn.BatchNorm1d(64)
 		self.bn2 = nn.BatchNorm1d(128)
 		self.bn3 = nn.BatchNorm1d(1024)
@@ -35,11 +37,12 @@ class STN3D(nn.Module):
 		x = F.relu(self.bn5(self.fc2(x)))
 		x = self.fc3(x)
 
-		iden = autograd.Variable(torch.from_numpy(np.array([1,0,0,0,1,0,0,0,1]).astype(np.float32))).view(1,9).repeat(batchsize, 1)
+		# iden = autograd.Variable(torch.from_numpy(np.array([1,0,0,0,1,0,0,0,1]).astype(np.float32))).view(1,9).repeat(batchsize, 1)
+		iden = autograd.Variable(torch.from_numpy(np.eye(input_dim).astype(np.float32).reshape(1, -1))).view(1,input_dim**2).repeat(batchsize, 1)
 		if x.is_cuda:
 			iden = iden.cuda()
 		x += iden
-		x = x.view(-1, 3, 3)
+		x = x.view(-1, input_dim, input_dim)
 		return x
 
 
@@ -47,7 +50,7 @@ class PointNetfeat(nn.Module):
 	def __init__(self, global_feat=True):
 		super(PointNetfeat, self).__init__()
 		self.stn = STN3D()
-		self.conv1 = nn.Conv1d(3, 64, 1)
+		self.conv1 = nn.Conv1d(input_dim, 64, 1)
 		self.conv2 = nn.Conv1d(64, 128, 1)
 		self.conv3 = nn.Conv1d(128, 1024, 1)
 		self.bn1 = nn.BatchNorm1d(64)

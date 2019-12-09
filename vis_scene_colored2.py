@@ -34,3 +34,10 @@ def vis_numpy(points):
         pcds.append(pcd)
 
     open3d.visualization.draw_geometries(pcds)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-path', '--path', type=str, required=True, help='path to points file')
+    points = np.loadtxt(parser.parse_args().path)
+    vis_numpy(points)

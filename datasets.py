@@ -238,15 +238,16 @@ class RoomsDataset_mk2:
         def __init__(self, path, npoints=4096, size=1000, feature_num=3, slicing_sizes=(1.0, 1.0, 1.0), slicing_mesh=None):
                 self.path = path
                 self.files_paths = [os.path.join(self.path, fn) for fn in os.listdir(self.path)]
+                random.shuffle(self.files_paths)
+
                 self.npoints = npoints
-                self.feature_num = feature_num
                 self.size = size
+                # self.feature_num = feature_num
+                self.box_gen = None
                 self.slicing_sizes = slicing_sizes
                 self.slicing_mesh = slicing_mesh
                 if slicing_sizes and slicing_mesh:
                         raise Exception("Set only one type of room slicing, please")
-                
-                self.box_gen = None
 
 
         def __len__(self):
@@ -292,34 +293,38 @@ class RoomsDataset_mk2:
 
         def new_box_gen(self):
                 if len(self.files_paths) == 0:
-                        self.files_paths = [os.path.join(self.path, fn) for fn in os.listdir(self.path)]
-
+                        self.files_paths =[os.path.join(self.path, fn) for fn in os.listdir(self.path)]
+                        random.shuffle(self.files_paths)
                 fp = self.files_paths.pop(0)
-                logging.debug("Loading file: {}".format(fp))
+                print("Loading file: {}".format(fp))
                 points = np.loadtxt(fp)
                 self.box_gen = self.make_box_gen(points)
+
+
+        def reset(self):
+                self.files_paths = []
+                self.new_box_gen()
 
 
         def __getitem__(self, idx):
                 if self.box_gen is None:
                         self.new_box_gen()
-
+                
                 try:
                         box = next(self.box_gen)
                 except StopIteration:
                         self.new_box_gen()
                         box = next(self.box_gen)
 
-                replace = True if box.shape[0]<self.npoints else False
-                # print(box.shape)
-                choice = np.random.choice(box.shape[0], self.npoints, replace=replace)
-                points = box[choice, :]
-                # print(points.shape)
-                xyz = points[:, :3].astype(np.float32)
+                points = box
+                if self.npoints is not None:
+                        replace = True if box.shape[0]<self.npoints else False
+                        choice = np.random.choice(box.shape[0], self.npoints, replace=replace)
+                        points = box[choice, :]
+
+                xyz = points[:, :6].astype(np.float32)
                 seg = points[:, -1].astype(np.int64)
                 xyz = scale_linear_bycolumn(xyz)
-                xyz = torch.from_numpy(xyz)
-                seg = torch.from_numpy(seg)
                 return xyz, seg
 
 
