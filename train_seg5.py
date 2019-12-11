@@ -9,6 +9,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data.sampler import BatchSampler, WeightedRandomSampler
+
 # import lera
 import mlflow
 from sklearn.metrics import classification_report, confusion_matrix
@@ -82,7 +84,7 @@ def log_metric_to_mlflow(true, pred, ds_type, target_names=None,
             for m, v in metrics.items():
                 mlflow.log_metric('{}_cr_{}_{}'.format(ds_type, label, m), v)
         else:
-            mlflow.log_metric('{}_cr_{}'.format(ds_type, label), metrics
+            mlflow.log_metric('{}_cr_{}'.format(ds_type, label), metrics)
     if verbose > 0:
         pprint(cr)
     if is_cm:
@@ -131,6 +133,62 @@ def log_metric_to_mlflow(true, pred, ds_type, target_names=None,
             print_cm(cmat, step_names)
 
 
+def get_weights(dataset, ds_type, n_classes, root='.', exist=True):
+    weights_fn = os.path.join(root, '{}_ds_weights.pt'.format(ds_type))
+    if not os.path.exists(weights_fn):
+        print('Evaluating {} weights'.format(ds_type))
+        n_samples = len(dataset)
+        counts = torch.zeros(n_samples, n_classes).long()
+        for i, (k, v) in enumerate(dataset.labels.items()):
+            n_points = len(dataset.points[k])
+            print('{}/{} {} {}'.format(i + 1, n_samples, n_points, k))
+            if isinstance(v, int):
+                u, c = torch.tensor([v]), torch.tensor([n_points])
+            else:
+                u, c = v.unique(return_counts=True)
+            # print(u, c)
+            counts[i].scatter_(0, u, c)
+        # print(counts)
+        if exist:
+            cols_counts_sum = torch.from_numpy(
+                np.count_nonzero(counts.numpy(), axis=0))
+        else:
+            cols_counts_sum = counts.sum(0)
+        print(cols_counts_sum)
+        zeros = (cols_counts_sum == 0).nonzero()  # WBD
+        if zeros.size()[0] > 0:
+            if ds_type == 'train':
+                raise ValueError('Labels {} are not presented '
+                                 'in datatset!'.format(zeros))
+            elif ds_type == 'test':
+                print('Warning! Labels {} are not presented '
+                      'in datatset!'.format(zeros))
+        cols_weights = cols_counts_sum.sum().float() / cols_counts_sum
+        cols_weights[cols_weights == float("Inf")] = 0
+        # print(cols_weights)
+        cols_weights = cols_weights / cols_weights.sum()
+        # print(cols_weights)
+        # print(cols_weights.sum())
+        rows_counts_sum = counts.sum(1)
+        # print(rows_counts_sum)
+        rows_weights = counts / rows_counts_sum.view(-1, 1).float()
+        # print(rows_weights)
+        weights = rows_weights * cols_weights
+        # print(weights)
+        weights = weights.sum(1)
+        # print(weights)
+        weights = weights / weights.sum()
+        # print(weights)
+        print('Saving {}'.format(weights_fn))
+        torch.save(weights, weights_fn)
+    else:
+        print('Loading {}'.format(weights_fn))
+        weights = torch.load(weights_fn)
+    print(weights)
+    print(weights.sum())
+    return weights
+
+
 def train(config):
     mlflow.set_experiment(config['dataset'])
     mlflow.log_params(config)
@@ -140,12 +198,33 @@ def train(config):
     torch.backends.cudnn.benchmark = True
     dataset = S3dDataset(root=config['root'], npoints=config['npoints'], train=True, load=True)
     test_dataset = S3dDataset(root=config['root'], npoints=config['npoints'], train=False, load=True)
-    print('training s3dis')
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=config['batchsize'], shuffle=True, 
-                num_workers=config['workers'])
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=config['batchsize'], shuffle=True, 
-        num_workers=config['workers'])
     num_classes = dataset.num_classes
+    if config['balance']:
+        train_weights = get_weights(dataset, 'train', root=config['root'],
+                                    n_classes=num_classes)
+        test_weights = get_weights(test_dataset, 'test', root=config['root'],
+                                   n_classes=num_classes)
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            batch_sampler=BatchSampler(
+                WeightedRandomSampler(weights=train_weights,
+                                      num_samples=len(dataset)),
+                batch_size=config['batchsize'],
+                drop_last=True),
+            num_workers=config['workers'])
+        test_dataloader = torch.utils.data.DataLoader(
+            test_dataset,
+            batch_sampler=BatchSampler(
+                WeightedRandomSampler(weights=test_weights,
+                                      num_samples=len(test_dataset)),
+                batch_size=config['batchsize'],
+                drop_last=True),
+            num_workers=config['workers'])
+    else:
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=config['batchsize'], shuffle=True,
+                    num_workers=config['workers'], drop_last=True)
+        test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=config['batchsize'], shuffle=True,
+            num_workers=config['workers'], drop_last=True)
     print('number of classes: %d' % num_classes)
     print('train set size: %d | test set size: %d' % (len(dataset), len(test_dataset)))
     try:
@@ -188,7 +267,18 @@ def train(config):
                 pred, _ = classifier(points)
                 pred = pred.view(-1, num_classes)
                 labels = labels.view(-1, 1)[:, 0]
-                loss = F.nll_loss(pred, labels)
+                if config['weight']:
+                    # unique labels, counts
+                    u, c = torch.unique(labels, return_counts=True)
+                    print(u, c)
+                    w = c.sum().float() / c  # weights
+                    w = w / w.sum()  # normalized weights
+                    # filling missing labels weights with zeros
+                    w = torch.zeros(num_classes).scatter_(0, u, w)
+                    print(w)
+                    loss = F.nll_loss(pred, labels, weight=w)
+                else:
+                    loss = F.nll_loss(pred, labels)
                 loss.backward()
                 optimizer.step()
                 time_per_step = time.time() - t0
@@ -286,10 +376,10 @@ if __name__ == '__main__':
     config = {
         'root': 'Stanford3dDataset_v1.2',
         'npoints': 4096,
-        'dataset': 's3dis3',
+        'dataset': 's3disw',
         'seed': 42,
         'batchsize': 300,
-        'workers': 38,
+        'workers': 0,  # FIXME Memory Leak when workers > 0! https://github.com/pytorch/pytorch/issues/13246
         'outf': 'outFolder',
         'lr': 0.01,
         'momentum': 0.9,
@@ -297,7 +387,9 @@ if __name__ == '__main__':
         'nepochs': 10,
         'model': None,
         'continue': True,
-        'verbose': 1
+        'verbose': 1,
+        'weight': True,
+        'balance': True
     }
 
     train(config)
