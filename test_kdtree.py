@@ -6,6 +6,9 @@ import open3d as o3d
 from scipy.spatial import cKDTree, KDTree
 from sklearn.neighbors import KDTree as sKDTree
 import matplotlib
+from matplotlib.colors import LogNorm
+from matplotlib import ticker
+from matplotlib import cm
 
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
@@ -136,16 +139,24 @@ if __name__ == '__main__':
     fig, axs = plt.subplots(2, 2)
     for i, qt in enumerate(qts):
         ax = axs.ravel()[i]
-        im = ax.imshow(qt, cmap='Blues',
-                       interpolation='nearest')
-        ax.set_xticks(np.arange(len(ns)))
-        ax.set_yticks(np.arange(len(lss)))
-        ax.set_xticklabels(ns, rotation=90, fontsize=6)
-        ax.set_yticklabels(lss, fontsize=6)
+        # im = ax.imshow(qt, cmap='Blues',
+        #                interpolation='nearest',
+        #                norm=LogNorm(vmin=1e-21, vmax=1))
+        cmap = cm.get_cmap('Blues')
+        im = ax.pcolormesh(ns, lss, qt, cmap=cmap,
+                           norm=LogNorm(vmin=1e-21, vmax=1))
+        # ax.set_xticks(np.arange(len(ns)))
+        # ax.set_yticks(np.arange(len(lss)))
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        # ax.set_xticklabels(ns, rotation=90, fontsize=4)
+        # ax.set_yticklabels(lss, fontsize=4)
         ax.set_xlabel('neighbours', fontsize=6)
         ax.set_ylabel('leaf', fontsize=6)
         cb = fig.colorbar(im, ax=ax)
         cb.ax.tick_params(labelsize=6)
+        tick_locator = ticker.MaxNLocator(nbins=15)
+        cb.locator = tick_locator
         ax.set_title(labels[i])
     plt.tight_layout()
     plt.savefig('qt.png', dpi=300)
