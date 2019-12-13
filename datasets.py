@@ -11,7 +11,7 @@ from utils import shapenet_labels
 import logging
 from time import time
 import open3d as o3d
-
+from deco import pc_info
 
 def scale_linear_bycolumn(rawdata, high=1.0, low=0.0):
     mins = np.min(rawdata, axis=0)
@@ -240,7 +240,7 @@ class RoomsDataset_mk2:
         def __init__(self, path, npoints=4096, size=1000, feature_num=3, slicing_sizes=(1.0, 1.0, 1.0), slicing_mesh=None):
                 self.path = path
                 self.files_paths = [os.path.join(self.path, fn) for fn in os.listdir(self.path)]
-                random.shuffle(self.files_paths)
+                # random.shuffle(self.files_paths)
 
                 self.npoints = npoints
                 self.size = size
@@ -296,7 +296,7 @@ class RoomsDataset_mk2:
         def new_box_gen(self):
                 if len(self.files_paths) == 0:
                         self.files_paths =[os.path.join(self.path, fn) for fn in os.listdir(self.path)]
-                        random.shuffle(self.files_paths)
+                        # random.shuffle(self.files_paths)
                 fp = self.files_paths.pop(0)
                 print("Loading file: {}".format(fp))
                 points = np.loadtxt(fp)
@@ -307,7 +307,7 @@ class RoomsDataset_mk2:
                 self.files_paths = []
                 self.new_box_gen()
 
-
+        # @pc_info(cmap='tab10', viz=True)
         def __getitem__(self, idx):
                 if self.box_gen is None:
                         self.new_box_gen()
@@ -367,11 +367,11 @@ class S3dDatasetNeiSphe(data.Dataset):
                 with open(os.path.join(file_path), 'w') as f:
                     f.write(str(self.cat[class_name]))
 
-    @pc_normalize(norm_type='spherical', center=False, verbose=False)
-    @ps_to_spherical(verbose=False)
+#     @pc_normalize(norm_type='spherical', center=False, verbose=False)
+#     @ps_to_spherical(verbose=False)
     # @pc_info(cmap='tab10', viz=True)
-    @pc_noise(sigma=0.01, seed=42)
-    @pc_rotate(max_x=0, max_y=0, max_z=180, seed=42)
+#     @pc_noise(sigma=0.01, seed=42)
+#     @pc_rotate(max_x=0, max_y=0, max_z=180, seed=42)
     def __getitem__(self, idx):
         n = 0
         while n != self.npoints:

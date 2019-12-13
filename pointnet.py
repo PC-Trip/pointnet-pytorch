@@ -7,7 +7,7 @@ import torch.autograd as autograd
 import torch.nn as nn
 import torch.nn.functional as F
 
-input_dim = 6 # 3
+input_dim = 3 # 3
 
 class STN3D(nn.Module):
 	def __init__(self):

@@ -6,7 +6,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-r', '--path', type=str, required=True, help='file path to use open3d upon')
     file_path = parser.parse_args().path
-    points = np.loadtxt(file_path).astype(np.float32)
+    points = np.loadtxt(file_path, skiprows=1).astype(np.float32)
     points = points[:, :3]
     pcd = open3d.geometry.PointCloud()
     pcd.points = open3d.utility.Vector3dVector(points)

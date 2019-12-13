@@ -2,7 +2,7 @@ import open3d as o3d
 from matplotlib import cm
 import numpy as np
 import torch
-from scipy.spatial.transform import Rotation as R
+# from scipy.spatial.transform import Rotation as R
 
 
 class Callback:
@@ -27,9 +27,9 @@ def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True,
         def wrapper(*args, **kwargs):
             # Preprocessing
             print('pc_info')
-            dataset, idx = args
-            fn = dataset.datapath[idx]
-            print(fn)
+            # dataset, idx = args
+            # fn = dataset.datapath[idx]
+            # print(fn)
             # FIXME can't add multiple point clouds to the VisualizerWithEditing
             # all_points = np.loadtxt(fn)[:, :3].astype(np.float32)
             # points_min = np.min(all_points, axis=0)
@@ -45,7 +45,7 @@ def pc_info(cmap='tab10', viz=True, coord_axes=True, black_bg=True,
             # all_pcd.points = o3d.utility.Vector3dVector(all_points)
             # all_pcd.colors = o3d.utility.Vector3dVector(all_colors)
             points, seg = func(*args, **kwargs)
-            classes = seg.unique()
+            classes = np.unique(seg)
             n_classes = len(classes)
             max_class = max(classes)
             # Show info
