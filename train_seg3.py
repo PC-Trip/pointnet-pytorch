@@ -43,6 +43,7 @@ def get_path_of_last_model(config):
 
 
 def train(config):
+    step = 0
     mlflow.log_params(config)
 
     print('Random seed: %d' % int(config['seed']))
@@ -79,21 +80,19 @@ def train(config):
         mlflow.log_param('start', config['model'])
     elif config.get('continue'):
         model_path, model_epoch_cumulatiove_base = get_path_of_last_model(config)
+        model_epoch_cumulatiove_base += 1
         if model_path:
             print('Loading model from: {}'.format(model_path))
             mlflow.log_param('start', model_path)
             classifier.load_state_dict(torch.load(model_path))
 
 
-    optimizer = optim.Adam(classifier.parameters(), lr=config['lr'])
+    # optimizer = optim.Adam(classifier.parameters(), lr=config['lr'])    
     # optimizer = optim.SGD(classifier.parameters(), lr=config['lr'], momentum=config['momentum'])
-    scheduler = StepLR(optimizer, step_size=1, gamma=0.97)
+    # scheduler = StepLR(optimizer, step_size=1, gamma=0.97)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     classifier.to(device)
-    if config.get('mgpu'):
-        classifier = torch.nn.DataParallel(classifier, device_ids=config['gpuids'])
-
     num_batch = len(dataset) / config['batchsize']
 
     for epoch in range(config['nepochs']):
@@ -103,42 +102,80 @@ def train(config):
                 points, labels = data
                 points = points.transpose(2, 1)
                 points, labels = points.to(device), labels.to(device)
-                optimizer.zero_grad()
-                classifier = classifier.train()
-                pred, _ = classifier(points)
-                pred = pred.view(-1, num_classes)
-                labels = labels.view(-1, 1)[:, 0]
-                loss = F.nll_loss(pred, labels)
-                loss.backward()
-                optimizer.step()
-                pred_choice = pred.data.max(1)[1]
-                correct = pred_choice.eq(labels.data).cpu().sum()
-                train_acc = correct.item() / float(config['batchsize']*config['npoints'])
-                train_iou = correct.item() / float(2*config['batchsize']*config['npoints']-correct.item())
-                print('epoch %d: %d/%d | train loss: %f | train acc: %f | train iou: %f' % (epoch+1, i+1, num_batch+1, loss.item(), train_acc, train_iou))
-                cnf_mtrx = confusion_matrix(labels.cpu().tolist(), pred_choice.cpu().tolist(), labels=sorted(list(num2cat)))
-                conf_mtrx_file_path = os.path.join("temp", f"cnf_mtrx_{epoch}_{i}.png")
-                plot_conf_matrix(cnf_mtrx, [num2cat[num] for num in sorted(list(num2cat))], conf_mtrx_file_path)
+                buffer_data = [points, labels]
 
-                encountered_class_nums = np.unique( np.array(labels.cpu().tolist()) )
-                prec, recall, f1, _ = precision_recall_fscore_support(labels.cpu().tolist(), pred_choice.cpu().tolist(), labels=sorted(encountered_class_nums))
-                for i, num in enumerate(encountered_class_nums):
-                    name = num2cat[num]
-                    mlflow.log_metrics({
-                        f"{name}_acc": prec[i],
-                        f"{name}_recall": recall[i],
-                        f"{name}_f1": f1[i],
-                    })
+                if i == 0:
+                    optimizer = optim.Adam(classifier.parameters(), lr=0.1)
+                    scheduler = StepLR(optimizer, step_size=8, gamma=0.1)
+                else:
+                    optimizer = optim.Adam(classifier.parameters(), lr=0.001)
+                    scheduler = StepLR(optimizer, step_size=5, gamma=1.5)
+                    
 
-                mlflow.log_artifact(conf_mtrx_file_path)
-                mlflow.log_metric('train_acc', train_acc, step=1)
-                mlflow.log_metric('train_iou', train_iou, step=1)
-                mlflow.log_metric('train_iou', train_iou, step=1)
-                mlflow.log_metric('lr', get_lr(optimizer), step=1)
+                for _ in range(config['retrain_on_batch']):
+                    optimizer.zero_grad()
+                    classifier = classifier.train()
+                    pred, _ = classifier(points)
+                    pred = pred.view(-1, num_classes)
+                    labels = labels.view(-1, 1)[:, 0]
+                    loss = F.nll_loss(pred, labels)
+                    loss.backward()
+                    optimizer.step()
+                    pred_choice = pred.data.max(1)[1]
+                    correct = pred_choice.eq(labels.data).cpu().sum()
+                    train_acc = correct.item() / float(config['batchsize']*config['npoints'])
+                    train_iou = correct.item() / float(2*config['batchsize']*config['npoints']-correct.item())
+                    print('epoch %d: %d/%d | train loss: %f | train acc: %f | train iou: %f' % (epoch+1, i+1, num_batch+1, loss.item(), train_acc, train_iou))
+                    cnf_mtrx = confusion_matrix(labels.cpu().tolist(), pred_choice.cpu().tolist(), labels=sorted(list(num2cat)))
+                    conf_mtrx_file_path = os.path.join("temp", f"cnf_mtrx_{epoch}_{i}.png")
+                    plot_conf_matrix(cnf_mtrx, [num2cat[num] for num in sorted(list(num2cat))], conf_mtrx_file_path)
 
-                train_acc_epoch.append(train_acc)
-                train_iou_epoch.append(train_iou)
-                scheduler.step()
+                    encountered_class_nums = np.unique( np.array(labels.cpu().tolist()) )
+                    prec, recall, f1, _ = precision_recall_fscore_support(labels.cpu().tolist(), pred_choice.cpu().tolist(), labels=sorted(encountered_class_nums))
+                    for j, num in enumerate(encountered_class_nums):
+                        name = num2cat[num]
+                        mlflow.log_metrics({
+                            f"{name}_acc": prec[j],
+                            f"{name}_recall": recall[j],
+                            f"{name}_f1": f1[j],
+                        }, step=step)
+
+                    mlflow.log_artifact(conf_mtrx_file_path)
+                    mlflow.log_metric('train_acc', train_acc, step=step)
+                    mlflow.log_metric('train_iou', train_iou, step=step)
+                    mlflow.log_metric('lr', get_lr(optimizer), step=step)
+                    train_acc_epoch.append(train_acc)
+                    train_iou_epoch.append(train_iou)
+
+                    if i>0: # batch i > 0
+                        last_points, last_labels = buffer_data
+                        classifier = classifier.eval()
+                        with torch.no_grad():
+                            pred, _ = classifier(last_points)
+                        pred = pred.view(-1, num_classes)
+                        last_labels = last_labels.view(-1, 1)[:, 0]
+                        loss = F.nll_loss(pred, last_labels)
+                        pred_choice = pred.data.max(1)[1]
+                        correct = pred_choice.eq(last_labels.data).cpu().sum()
+
+                        train_acc = correct.item() / float(config['batchsize']*config['npoints'])
+                        train_iou = correct.item() / float(2*config['batchsize']*config['npoints']-correct.item())
+                        encountered_class_nums = np.unique( np.array(last_labels.cpu().tolist()) )
+                        prec, recall, f1, _ = precision_recall_fscore_support(last_labels.cpu().tolist(), pred_choice.cpu().tolist(), labels=sorted(encountered_class_nums))
+                        for i, num in enumerate(encountered_class_nums):
+                            name = num2cat[num]
+                            mlflow.log_metrics({
+                                f"future_{name}_acc": prec[i],
+                                f"future_{name}_recall": recall[i],
+                                f"future_{name}_f1": f1[i],
+                            }, step=step-config['retrain_on_batch'])
+
+                        mlflow.log_metric('future_train_acc', train_acc, step=step-config['retrain_on_batch'])
+                        mlflow.log_metric('future_train_iou', train_iou, step=step-config['retrain_on_batch'])
+
+                    scheduler.step()
+                    step += 1
+
 
                 if (i+1) % 20 == 0:
                     test_acc_epoch, test_iou_epoch = [], []
@@ -180,8 +217,8 @@ def train(config):
                             f"{name}_f1": f1[k],
                         })
 
-                    mlflow.log_metric('test_acc', np.mean(test_acc_epoch), step=1)
-                    mlflow.log_metric('test_iou', np.mean(test_iou), step=1)
+                    mlflow.log_metric('test_acc', np.mean(test_acc_epoch))
+                    mlflow.log_metric('test_iou', np.mean(test_iou))
                     print(red('epoch %d | mean test acc: %f | mean test IoU: %f') % (epoch+1, np.mean(test_acc_epoch), np.mean(test_iou_epoch)))
                 
             print(yellow('epoch %d | mean train acc: %f | mean train IoU: %f') % (epoch+1, np.mean(train_acc_epoch), np.mean(train_iou_epoch)))
@@ -203,15 +240,16 @@ if __name__ == '__main__':
         'npoints': 4096,
         'dataset': 's3dis',
         'seed': 42,
-        'batchsize': 10,
+        'batchsize': 30,
         'workers': 0,
         'modelsFolder': 'modelsFolder',
-        'lr': 0.001,
+        'lr': 0.01,
         'momentum': 0.1,
         'classname': '',
         'nepochs': 30,
         'model': None,
         'continue': True,
+        'retrain_on_batch': 20,
     }
 
     train(config)
