@@ -97,23 +97,30 @@ def plot_2(file_name):
 
 import torch
 import torch.nn as nn
-# import torch.nn.functional as F
+import torch.nn.functional as F
 import torch.optim as optim
 
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.fc1 = nn.Linear(3, 512)
+        self.fc1 = nn.Linear(3000, 512)
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, 512)
-        self.fc4 = nn.Linear(512, 3)
+        self.fc4 = nn.Linear(512, 3000)
+        self.bn1 = nn.BatchNorm1d(512)
+        self.bn2 = nn.BatchNorm1d(256)
+        self.bn3 = nn.BatchNorm1d(512)
 
     def forward(self, x):
-        x = self.fc1(x)
-        x = self.fc2(x)
-        x = self.fc3(x)
-        x = self.fc4(x)
+        # x = self.fc1(x)
+        # x = self.fc2(x)
+        # x = self.fc3(x)
+        # x = self.fc4(x)
+        x = F.relu(self.bn1(self.fc1(x)))
+        x = F.relu(self.bn2(self.fc2(x)))
+        x = F.relu(self.bn3(self.fc3(x)))
+        x = F.relu(self.fc4(x))
         return x
 
 
@@ -163,16 +170,32 @@ class Dataset2(data.Dataset):
         self.pcd_tree = o3d.geometry.KDTreeFlann(pcd)
 
     def __getitem__(self, idx):
-        n, idxs, ds = self.pcd_tree.search_hybrid_vector_3d(self.points[idx], 2, 1)
+        # print(idx)
+        max_nn = 100000000
+        # idx = np.random.randint(len(self.points))
+        n, idxs, ds = self.pcd_tree.search_hybrid_vector_3d(
+            self.points[idx], 0.1, max_nn)
+        # print(idxs)
+        # print(len(idxs))
+        # print(ds)
+        if len(idxs) >= 1000:
+            filtered_idxs = np.random.choice(len(idxs), 1000, replace=False)
+        else:
+            filtered_idxs = np.random.choice(len(idxs), 1000, replace=True)
+        filtered_idxs.sort()
+        # print(filtered_idxs)
+        idxs = [idxs[x] for x in filtered_idxs]
+        # print(idxs)
         # print(n, len(idxs), len(ds))
         ps2 = self.points[idxs]
         ls2 = self.labels[idxs]
+        sample = {'points': ps2, 'labels': ls2}
         # cs2 = self.labels_colors[idxs]
         # pcd2 = o3d.geometry.PointCloud()
-        # pcd2.points = o3d.utility.Vector3dVector(ps2)
+        # pcd2.points = o3d.utility.Vector3dVector(sample['points'])
         # pcd2.colors = o3d.utility.Vector3dVector(cs2)
         # vis = o3d.visualization.VisualizerWithEditing()
-        # c = Callback(ls2, self.labels_names)
+        # c = Callback(sample['labels'], self.labels_names)
         # vis.register_animation_callback(c)
         # vis.create_window(width=500, height=500, left=50, top=50)
         # vis.add_geometry(pcd2)
@@ -181,23 +204,23 @@ class Dataset2(data.Dataset):
         # opt.background_color = np.asarray([0, 0, 0])
         # vis.run()
         # vis.destroy_window()
-        sample = {'points': ps2, 'labels': ls2}
         if self.transform:
             sample = self.transform(sample)
+        # print(sample['points'])
         return sample
 
     def __len__(self):
-        return 100
+        return len(self.points)
 
 
-class Norm(object):
+class Normalize(object):
 
     def __init__(self):
         pass
 
     def __call__(self, sample):
         ps, ls = sample['points'], sample['labels']
-        print('Norm')
+        # print('Norm')
         sample = {'points': ps, 'labels': ls}
         return sample
 
@@ -209,10 +232,27 @@ class ToSpherical(object):
 
     def __call__(self, sample):
         ps, ls = sample['points'], sample['labels']
-        print('ToSpherical')
+        # print('ToSpherical')
+        c = ps[0].copy()
+        for i, p in enumerate(ps):  # TODO optimize
+            x, y, z = p - c
+            r = np.sqrt(x * x + y * y + z * z)
+            theta = np.arccos(z / r) if r != 0 else 0.0
+            phi = np.arctan2(y, x)
+            ps[i] = np.array([r, theta, phi])
+        ps_min = ps.min(0)
+        ps_max = ps.max(0)
+        ps_range = ps_max - ps_min
+        ps_range[ps_range == 0] = 1
+        ps_range[1] = np.pi
+        ps_range[2] = 2 * np.pi
+        ps_min[1] = 0.0
+        ps_min[2] = -np.pi
+        ps = (ps - ps_min) / ps_range
         sample = {'points': ps, 'labels': ls}
         return sample
 
+from torch.utils.data.sampler import BatchSampler, WeightedRandomSampler, RandomSampler
 
 def train(dataset):
     torch.manual_seed(0)
@@ -220,6 +260,8 @@ def train(dataset):
     print(net)
     # for param in net.parameters():
     #     print(param)
+    batch_size = 30
+    n_epochs = 10
     if os.path.exists('net.pth'):
         net.load_state_dict(torch.load('net.pth'))
         net.eval()
@@ -229,17 +271,30 @@ def train(dataset):
             # batch_sampler=BatchSampler(
             #     WeightedRandomSampler(weights=train_weights,
             #                           num_samples=len(dataset)),
-            batch_size=100,
-            #     drop_last=True),
+            batch_sampler=BatchSampler(
+                RandomSampler(data_source=dataset),
+                batch_size=batch_size,
+                drop_last=True),
             # num_workers=config['workers']
         )
+        # dataloader = torch.utils.data.DataLoader(
+        #     dataset,
+        #     # batch_sampler=BatchSampler(
+        #     #     WeightedRandomSampler(weights=train_weights,
+        #     #                           num_samples=len(dataset)),
+        #     # batch_sampler=BatchSampler(
+        #     #     RandomSampler(data_source=dataset),
+        #     batch_size=batch_size,
+        #         # drop_last=True),
+        #     # num_workers=config['workers']
+        # )
         optimizer = optim.SGD(net.parameters(), lr=0.01)
         criterion = nn.MSELoss()
-        for i in range(5):
+        for i in range(n_epochs):
             for j, sample in enumerate(dataloader):
                 optimizer.zero_grad()
                 x = sample['points'].float()
-                x = x.view(100, 3)
+                x = x.view(batch_size, 3000)
                 t = x
                 p = net(x)
                 loss = criterion(p, t)
@@ -250,13 +305,14 @@ def train(dataset):
     torch.save(net.state_dict(), 'net.pth')
     # x2
     # with torch.no_grad():
-    x2 = net.fc3(torch.randn(3, 256))
+    # x2 = net.fc3(torch.randn(3, 256))
+    x2 = net.fc3(torch.from_numpy(np.array([1. if x == 0 else 0. for x in range(256)])).float())
     x2 = net.fc4(x2)
     print(x2)
 
 
 if __name__ == '__main__':
-    composed = torchvision.transforms.Compose([Norm(), ToSpherical()])
+    composed = torchvision.transforms.Compose([ToSpherical(), Normalize()])
     ds = Dataset2('/home/romanzes/Programs/pointnet-pytorch/s3d_rooms/test/rooms/office_25.txt',
                   transform=composed)
     train(ds)
